@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<meta name="robots" content="noindex">
+<title>Wall stress test</title>
+<style>
+  :root{--bg:#10151b;--ink:#f3efe7;--mute:#9aa6b2;--ok:#45c08a;--warn:#e6a23c;--bad:#ff6f61;--acc:#0072B2}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}
+  #hud{position:fixed;left:0;right:0;top:0;padding:24px 32px;background:rgba(0,0,0,.55);z-index:20;display:grid;grid-template-columns:repeat(4,1fr);gap:12px 24px;font-size:28px}
+  #hud b{display:block;font-size:56px;font-variant-numeric:tabular-nums;line-height:1.05}
+  #hud small{color:var(--mute);font-size:20px}
+  .good{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+  #stage{position:fixed;inset:0;overflow:hidden}
+  .bg{position:absolute;inset:0;opacity:0;transition:opacity 3s ease}
+  .bg.on{opacity:1}
+  .sprite{position:absolute;top:-140px;font-size:110px;line-height:1;will-change:transform}
+  #ring{position:absolute;left:50%;top:44%;width:420px;height:420px;margin:-210px 0 0 -210px}
+  #ring circle{fill:none;stroke-width:34;stroke-linecap:round}
+  #list{position:absolute;left:60px;right:60px;bottom:330px;display:flex;flex-direction:column;gap:12px}
+  .row{height:96px;border-radius:24px;background:rgba(255,255,255,.1);display:flex;align-items:center;gap:20px;padding:0 24px;font-size:36px}
+  .row i{width:64px;height:64px;border-radius:18px;border:5px solid var(--mute);flex:none}
+  #controls{position:fixed;left:0;right:0;bottom:0;padding:20px 24px 28px;background:rgba(0,0,0,.6);z-index:20;display:flex;flex-wrap:wrap;gap:14px}
+  button{font:inherit;font-size:28px;font-weight:650;color:var(--ink);background:rgba(255,255,255,.12);border:3px solid rgba(255,255,255,.25);border-radius:22px;min-height:96px;padding:0 28px}
+  button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+  #touches{position:fixed;inset:0;pointer-events:none;z-index:30}
+  .tp{position:absolute;width:120px;height:120px;margin:-60px 0 0 -60px;border-radius:50%;border:6px solid var(--acc);background:rgba(0,114,178,.25);display:grid;place-items:center;font-size:40px;font-weight:800}
+  #flash{position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:25}
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<div id="touches"></div>
+<div id="flash"></div>
+<div id="hud">
+  <div><small>Frames per second (now)</small><b id="fps">–</b></div>
+  <div><small>Worst frame, last 5 s</small><b id="worst">–</b></div>
+  <div><small>Slow frames (&gt;33 ms), last 5 s</small><b id="jank">–</b></div>
+  <div><small>Tap to paint (last tap)</small><b id="lat">–</b></div>
+  <div style="grid-column:1/-1"><small id="info"></small></div>
+  <div style="grid-column:1/-1;font-size:24px" id="verdict">Run each test for about 20 seconds. Touch the screen with several fingers to check multi-touch.</div>
+</div>
+<div id="controls">
+  <button data-t="rain">Emoji rain (60)</button>
+  <button data-t="ring">Progress ring</button>
+  <button data-t="list">List add/remove</button>
+  <button data-t="bg">Gradient fades</button>
+  <button data-t="all">Everything at once</button>
+  <button id="report">Copy results</button>
+</div>
+<script>
+"use strict";
+const $=s=>document.querySelector(s), stage=$('#stage');
+$('#info').textContent=`Viewport ${innerWidth}×${innerHeight} CSS px · devicePixelRatio ${devicePixelRatio} · ${navigator.userAgent.replace(/\s+/g,' ').slice(0,140)}`;
+/* ---- frame meter ---- */
+let last=performance.now(), times=[], fpsNow=0;
+const log={};let cur='idle';
+function tick(t){const d=t-last;last=t;times.push([t,d]);while(times.length&&t-times[0][0]>5000)times.shift();
+  const n=times.length, worst=Math.max(...times.map(x=>x[1])), jank=times.filter(x=>x[1]>33.4).length;
+  fpsNow=Math.round(1000/(times.slice(-30).reduce((a,x)=>a+x[1],0)/Math.min(30,n)));
+  setVal('#fps',fpsNow,fpsNow>=55?'good':fpsNow>=40?'warn':'bad');
+  setVal('#worst',Math.round(worst)+' ms',worst<=34?'good':worst<=60?'warn':'bad');
+  setVal('#jank',jank,jank<=3?'good':jank<=15?'warn':'bad');
+  (log[cur]=log[cur]||{fps:[],worst:0,jank:0});log[cur].fps.push(fpsNow);log[cur].worst=Math.max(log[cur].worst,worst);log[cur].jank=Math.max(log[cur].jank,jank);
+  requestAnimationFrame(tick);}
+function setVal(sel,v,c){const e=$(sel);e.textContent=v;e.className=c;}
+requestAnimationFrame(tick);
+/* ---- touch + latency ---- */
+const tps=new Map();
+addEventListener('pointerdown',e=>{const t0=e.timeStamp;const f=$('#flash');f.style.opacity=.08;
+  requestAnimationFrame(()=>requestAnimationFrame(t=>{const ms=Math.round(t-t0);setVal('#lat',ms+' ms',ms<=50?'good':ms<=100?'warn':'bad');f.style.opacity=0;}));
+  if(e.target.closest('button'))return;const d=document.createElement('div');d.className='tp';$('#touches').appendChild(d);tps.set(e.pointerId,d);place(e);count();});
+addEventListener('pointermove',e=>place(e));
+['pointerup','pointercancel'].forEach(ev=>addEventListener(ev,e=>{const d=tps.get(e.pointerId);if(d){d.remove();tps.delete(e.pointerId);count();}}));
+function place(e){const d=tps.get(e.pointerId);if(d){d.style.left=e.clientX+'px';d.style.top=e.clientY+'px';}}
+function count(){let i=1;tps.forEach(d=>d.textContent=i++);if(tps.size)$('#verdict').textContent=`Touch points right now: ${tps.size}. They should sit exactly under your fingers.`;}
+addEventListener('contextmenu',e=>e.preventDefault());
+/* ---- tests ---- */
+const on={};const timers={};
+const EM=['🦖','🍕','🚀','🐙','🍩','⚽','🦄','🐶','🌮','🦈','🍓','🚒','🐢','🎈'];
+function rain(){if(!on.rain)return;const H=innerHeight;for(let i=0;i<60;i++){const s=document.createElement('span');s.className='sprite';s.textContent=EM[i%EM.length];s.style.left=(Math.random()*94)+'%';stage.appendChild(s);
+  const sz=.6+Math.random()*.8;const a=s.animate([{transform:`translateY(0) rotate(${Math.random()*40-20}deg) scale(${sz})`},{transform:`translateY(${H+300}px) rotate(${Math.random()*240-120}deg) scale(${sz})`}],{duration:1800+Math.random()*1400,delay:Math.random()*1000,easing:'cubic-bezier(.35,0,.7,1)',fill:'both'});a.onfinish=()=>s.remove();}
+  timers.rain=setTimeout(rain,3200);}
+function ring(){if(!on.ring){$('#ring')?.remove();return;}if(!$('#ring')){stage.insertAdjacentHTML('beforeend',`<svg id="ring" viewBox="0 0 420 420"><circle cx="210" cy="210" r="180" stroke="rgba(255,255,255,.15)"/><circle id="fil" cx="210" cy="210" r="180" stroke="#009E73" transform="rotate(-90 210 210)" stroke-dasharray="1131" stroke-dashoffset="1131" style="transition:stroke-dashoffset 400ms cubic-bezier(.2,0,0,1)"/></svg>`);}
+  const f=$('#fil');let k=0;timers.ring=setInterval(()=>{k=(k+1)%6;f.style.strokeDashoffset=1131*(1-k/5);},600);}
+function list(){if(!on.list){$('#list')?.remove();return;}if(!$('#list'))stage.insertAdjacentHTML('beforeend','<div id="list"></div>');const L=$('#list');let n=0;
+  timers.list=setInterval(()=>{const rows=[...L.children];const first=new Map(rows.map(r=>[r,r.getBoundingClientRect().top]));
+    if(rows.length>=6){const r=rows[Math.floor(Math.random()*rows.length)];r.animate([{transform:'none',opacity:1},{transform:'translateX(-100%)',opacity:0}],{duration:200,easing:'cubic-bezier(.3,0,1,1)'}).onfinish=()=>{const f2=new Map([...L.children].map(x=>[x,x.getBoundingClientRect().top]));r.remove();[...L.children].forEach(x=>{const dy=f2.get(x)-x.getBoundingClientRect().top;if(dy)x.animate([{transform:`translateY(${dy}px)`},{transform:'none'}],{duration:200,easing:'cubic-bezier(.2,0,0,1)'});});};}
+    else{const d=document.createElement('div');d.className='row';d.innerHTML=`<i></i>Grocery item ${++n}`;L.prepend(d);d.animate([{opacity:0,transform:'translateY(-8px) scale(.98)'},{opacity:1,transform:'none'}],{duration:220,easing:'cubic-bezier(.2,0,0,1)'});
+      [...L.children].slice(1).forEach(x=>{const dy=first.get(x)-x.getBoundingClientRect().top;if(dy)x.animate([{transform:`translateY(${dy}px)`},{transform:'none'}],{duration:200,easing:'cubic-bezier(.2,0,0,1)'});});}},450);}
+const G=['linear-gradient(170deg,#F7C97E,#F29E6D 38%,#C8737A 70%,#5B3A8C)','linear-gradient(170deg,#9AD5F0,#5FA8C9 45%,#2E6E8A)','radial-gradient(120% 80% at 30% 20%,#FFB86B,#E9677A 35%,#5B3A8C 70%,#1C1838)'];
+function bg(){if(!on.bg){document.querySelectorAll('.bg').forEach(b=>b.remove());return;}G.forEach((g,i)=>stage.insertAdjacentHTML('afterbegin',`<div class="bg${i?'':' on'}" style="background:${g}"></div>`));let i=0;
+  timers.bg=setInterval(()=>{const b=document.querySelectorAll('.bg');b[i%b.length].classList.remove('on');i++;b[i%b.length].classList.add('on');},3000);}
+const RUN={rain,ring,list,bg};
+function setTest(t,v){on[t]=v;clearTimeout(timers[t]);clearInterval(timers[t]);RUN[t]();document.querySelector(`[data-t="${t}"]`).setAttribute('aria-pressed',v);}
+document.querySelectorAll('[data-t]').forEach(b=>b.addEventListener('click',()=>{const t=b.dataset.t;
+  if(t==='all'){const v=!on.all;on.all=v;b.setAttribute('aria-pressed',v);['rain','ring','list','bg'].forEach(x=>setTest(x,v));cur=v?'all':'idle';return;}
+  setTest(t,!on[t]);cur=Object.keys(RUN).filter(x=>on[x]).join('+')||'idle';}));
+$('#report').addEventListener('click',()=>{const lines=Object.entries(log).map(([k,v])=>{const f=v.fps.slice(60);const avg=f.length?Math.round(f.reduce((a,b)=>a+b,0)/f.length):0;const min=f.length?Math.min(...f):0;return `${k}: avg ${avg} fps, min ${min}, worst frame ${Math.round(v.worst)} ms, max slow frames/5s ${v.jank}`;});
+  const txt=[$('#info').textContent,...lines,'last tap-to-paint '+$('#lat').textContent].join('\n');$('#verdict').textContent='Results:\n'+txt;$('#verdict').style.whiteSpace='pre-wrap';
+  try{navigator.clipboard.writeText(txt).catch(()=>{});}catch(e){}});
+</script>
+</body>
+</html>
